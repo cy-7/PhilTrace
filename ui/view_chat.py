@@ -116,25 +116,33 @@ def render_empty_state() -> None:
     )
 
 
-def call_chat_api(
+def call_chat_api_stream(
     base_url: str,
     message: str,
     model: str,
     adapter: Optional[str],
     history: Optional[List[Dict[str, str]]],
-) -> Dict[str, Any]:
+):
+    """Stream chat response from backend."""
     payload = {
         "message": message,
         "model": model,
         "adapter": adapter,
         "history": history,
-        "stream": False,
+        "stream": True,
     }
 
-    with httpx.Client(timeout=120.0) as client:
-        response = client.post(f"{base_url}/chat/simple", json=payload)
-        response.raise_for_status()
-        return response.json()
+    with httpx.Client(timeout=600.0) as client:
+        with client.stream("POST", f"{base_url}/chat", json=payload) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if line.startswith("data: "):
+                    import json
+                    data = json.loads(line[6:])
+                    if data.get("done"):
+                        break
+                    if chunk := data.get("chunk"):
+                        yield chunk
 
 
 def render_chat_view() -> None:
@@ -173,19 +181,22 @@ def render_chat_view() -> None:
     with st.chat_message("assistant"):
         client = st.session_state.chat_client
         try:
-            with st.spinner("模型思考中..."):
-                result = call_chat_api(
-                    base_url=client.base_url,
-                    message=prompt,
-                    model=selected_model,
-                    adapter=selected_lora if philosophy_mode else None,
-                    history=history if history else None,
-                )
-
-            answer = result.get("response", "[No response]")
-            st.markdown(answer)
+            message_placeholder = st.empty()
+            full_response = ""
+            
+            for chunk in call_chat_api_stream(
+                base_url=client.base_url,
+                message=prompt,
+                model=selected_model,
+                adapter=selected_lora if philosophy_mode else None,
+                history=history if history else None,
+            ):
+                full_response += chunk
+                message_placeholder.markdown(full_response + "▌")
+            
+            message_placeholder.markdown(full_response)
             st.session_state.chat_messages.append(
-                {"role": "assistant", "content": answer, "timestamp": datetime.now().isoformat()}
+                {"role": "assistant", "content": full_response, "timestamp": datetime.now().isoformat()}
             )
         except httpx.HTTPStatusError as exc:
             text = f"请求失败 ({exc.response.status_code})：{exc.response.text}"

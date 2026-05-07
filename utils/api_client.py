@@ -14,7 +14,7 @@ from requests.exceptions import ConnectionError, Timeout
 
 
 DEFAULT_BASE_URL = "http://localhost:8000"
-DEFAULT_TIMEOUT = 120
+DEFAULT_TIMEOUT = 600
 
 
 @dataclass

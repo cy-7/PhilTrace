@@ -12,6 +12,7 @@ import httpx
 
 from backend.config import settings
 from backend.logging_utils import get_logger
+from backend.philosophy_prompts import get_philosophy_prompt
 
 
 logger = get_logger(__name__)
@@ -20,10 +21,7 @@ OLLAMA_BASE_URL = settings.ollama_base_url
 OLLAMA_API_TAGS = f"{OLLAMA_BASE_URL}/api/tags"
 OLLAMA_API_CHAT = f"{OLLAMA_BASE_URL}/api/chat"
 
-DEFAULT_PHILOSOPHY_PROMPT = (
-    "You are a professional philosophy research assistant. "
-    "Answer rigorously, cite schools when relevant, and stay neutral."
-)
+DEFAULT_PHILOSOPHY_PROMPT = get_philosophy_prompt(enable=True)
 
 
 class OllamaServiceError(RuntimeError):

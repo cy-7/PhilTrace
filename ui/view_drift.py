@@ -130,20 +130,16 @@ def render_semantic_scatter_chart(scatter_data: pd.DataFrame) -> None:
     if "cluster_keywords" not in df.columns:
         df["cluster_keywords"] = ""
 
+    hover_cols = {col: True for col in ["text", "source", "label", "cluster_keywords"] if col in df.columns}
+    hover_cols.update({"x": False, "y": False})
+    
     fig = px.scatter(
         df,
         x="x",
         y="y",
         color="period",
         color_discrete_map=PERIOD_COLORS,
-        hover_data={
-            "text": True,
-            "source": True,
-            "label": True,
-            "cluster_keywords": True,
-            "x": False,
-            "y": False,
-        },
+        hover_data=hover_cols,
     )
 
     fig.update_traces(marker={"size": 9, "opacity": 0.85, "line": {"width": 1, "color": "#212121"}})
@@ -357,19 +353,40 @@ def render_drift_view() -> None:
         )
         return
 
-    with st.spinner("正在执行概念漂移分析..."):
+    progress_text = st.empty()
+    progress_bar = st.progress(0)
+    
+    try:
+        progress_text.text("🔍 正在搜索语料库...")
+        progress_bar.progress(20)
+        
         client = get_client_with_fallback()
-        try:
-            result = client.get_concept_analysis(
-                word=concept,
-                umap_params=tuning["umap_params"],
-                hdbscan_params=tuning["hdbscan_params"],
-                force_recompute=tuning["force_recompute"],
-            )
-        except Exception as exc:  # noqa: BLE001
-            st.error(f"分析失败：{exc}")
-            st.info("请确认后端已运行：uvicorn backend.main:app --reload")
-            return
+        
+        progress_text.text("🧠 正在生成语义嵌入...")
+        progress_bar.progress(40)
+        
+        result = client.get_concept_analysis(
+            word=concept,
+            umap_params=tuning["umap_params"],
+            hdbscan_params=tuning["hdbscan_params"],
+            force_recompute=tuning["force_recompute"],
+        )
+        
+        progress_text.text("📊 正在聚类分析...")
+        progress_bar.progress(80)
+        
+        progress_text.text("✅ 分析完成！")
+        progress_bar.progress(100)
+        
+        progress_text.empty()
+        progress_bar.empty()
+        
+    except Exception as exc:  # noqa: BLE001
+        progress_text.empty()
+        progress_bar.empty()
+        st.error(f"分析失败：{exc}")
+        st.info("请确认后端已运行：uvicorn backend.main:app --reload")
+        return
 
     st.markdown("---")
     st.markdown('<h2 class="phil-section-title">跨时期定义</h2>', unsafe_allow_html=True)
