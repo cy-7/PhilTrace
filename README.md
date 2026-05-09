@@ -102,8 +102,10 @@ python -m scripts.run_demo --word justice --provider ollama
 ### 启动 Web 服务
 
 ```bash
+# 所有命令均在项目根目录运行 (C:\project\PhilTrace)
+
 # 后端 API
-cd backend && uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
 # 前端 (新终端)
 streamlit run main.py
