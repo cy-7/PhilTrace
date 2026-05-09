@@ -1,5 +1,8 @@
 ﻿"""
 Analysis engine for concept drift analysis.
+
+Orchestrates the full pipeline: corpus extraction → embedding → UMAP → HDBSCAN → results.
+Now uses ModernBERTEncoder for token-level contextual embeddings.
 """
 
 from __future__ import annotations
@@ -17,16 +20,10 @@ import pandas as pd
 
 from backend.config import settings
 from backend.logging_utils import get_logger
+from backend.modernbert_encoder import ModernBERTEncoder
+from backend.pipeline_config import get_pipeline_config
 
 logger = get_logger(__name__)
-
-try:
-    import torch
-    from transformers import AutoModel, AutoTokenizer
-except Exception:  # noqa: BLE001
-    torch = None
-    AutoModel = None
-    AutoTokenizer = None
 
 try:
     import umap
@@ -49,16 +46,6 @@ PERIOD_YEARS = {
     "Modern": "1500 CE - 1900 CE",
     "Contemporary": "1900 CE - Present",
 }
-
-DEFAULT_UMAP_PARAMS = {"n_neighbors": 15, "min_dist": 0.1, "n_components": 2, "metric": "cosine"}
-DEFAULT_HDBSCAN_PARAMS = {
-    "min_cluster_size": 15,
-    "min_samples": 5,
-    "metric": "euclidean",
-    "cluster_selection_method": "eom",
-}
-DEFAULT_MODEL_NAME = "roberta-base"
-FALLBACK_EMBEDDING_SIZE = 384
 
 
 @dataclass
@@ -137,7 +124,12 @@ def _safe_word_for_cache(word: str) -> str:
     return f"{slug}_{digest}"
 
 
-def _cache_path(word: str, suffix: str) -> Path:
+def _cache_path(word: str, suffix: str, model_name: Optional[str] = None) -> Path:
+    """Generate cache path, optionally including model name for isolation."""
+    pipeline_cfg = get_pipeline_config()
+    if pipeline_cfg.cache.include_model_in_key and model_name:
+        model_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", model_name)[:30]
+        return CACHE_DIR / f"{_safe_word_for_cache(word)}_{model_slug}.{suffix}"
     return CACHE_DIR / f"{_safe_word_for_cache(word)}.{suffix}"
 
 
@@ -156,20 +148,20 @@ def _is_cache_fresh(path: Path) -> bool:
     return age <= ttl
 
 
-def save_vectors_cache(word: str, df: pd.DataFrame) -> None:
+def save_vectors_cache(word: str, df: pd.DataFrame, model_name: Optional[str] = None) -> None:
     if not settings.enable_cache:
         return
-    path = _cache_path(word, "vec.pkl")
+    path = _cache_path(word, "vec.pkl", model_name)
     tmp = path.with_suffix(path.suffix + ".tmp")
     df.to_pickle(tmp)
     tmp.replace(path)
 
 
-def load_vectors_cache(word: str) -> Optional[pd.DataFrame]:
+def load_vectors_cache(word: str, model_name: Optional[str] = None) -> Optional[pd.DataFrame]:
     if not settings.enable_cache:
         return None
 
-    path = _cache_path(word, "vec.pkl")
+    path = _cache_path(word, "vec.pkl", model_name)
     if not path.exists() or not _is_cache_fresh(path):
         return None
 
@@ -185,20 +177,20 @@ def load_vectors_cache(word: str) -> Optional[pd.DataFrame]:
     return None
 
 
-def save_clustering_cache(word: str, params: Dict[str, Any], result: Dict[str, Any]) -> None:
+def save_clustering_cache(word: str, params: Dict[str, Any], result: Dict[str, Any], model_name: Optional[str] = None) -> None:
     if not settings.enable_cache:
         return
 
-    path = _cache_path(word, "res.pkl")
+    path = _cache_path(word, "res.pkl", model_name)
     payload = {"params": params, "result": result, "timestamp": time.time()}
     _atomic_pickle_dump(path, payload)
 
 
-def load_clustering_cache(word: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def load_clustering_cache(word: str, params: Dict[str, Any], model_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
     if not settings.enable_cache:
         return None
 
-    path = _cache_path(word, "res.pkl")
+    path = _cache_path(word, "res.pkl", model_name)
     if not path.exists() or not _is_cache_fresh(path):
         return None
 
@@ -215,40 +207,43 @@ def load_clustering_cache(word: str, params: Dict[str, Any]) -> Optional[Dict[st
     return None
 
 
+def save_usages_feather(word: str, df: pd.DataFrame, model_name: Optional[str] = None) -> Optional[Path]:
+    """Save usages DataFrame to feather format for persistence."""
+    pipeline_cfg = get_pipeline_config()
+    if not pipeline_cfg.output.save_usages_feather:
+        return None
+
+    output_dir = Path(__file__).parent.parent / "data" / "usages"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Feather doesn't support object arrays (numpy vectors), so store as list
+    save_df = df.copy()
+    save_df["vector"] = save_df["vector"].apply(lambda v: v.tolist() if isinstance(v, np.ndarray) else v)
+
+    model_slug = re.sub(r"[^a-zA-Z0-9_-]", "_", model_name or "unknown")[:30]
+    path = output_dir / f"{_safe_word_for_cache(word)}_{model_slug}.feather"
+    save_df.to_feather(path)
+    logger.info("Saved usages feather: %s (%d rows)", path.name, len(df))
+    return path
+
+
 class AnalysisEngine:
-    def __init__(self, model_name: str = DEFAULT_MODEL_NAME, use_cache: bool = True):
-        self.model_name = model_name
+    def __init__(self, use_cache: bool = True):
+        self.pipeline_config = get_pipeline_config()
         self.use_cache = use_cache and settings.enable_cache
         self.corpus_files: Dict[str, List[Path]] = {}
-        self.model = None
-        self.tokenizer = None
-        self.hidden_size = FALLBACK_EMBEDDING_SIZE
 
-        if torch is not None:
-            self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        else:
-            self.device = "cpu"
+        # Initialize the ModernBERT encoder
+        self.encoder = ModernBERTEncoder(config=self.pipeline_config.encoder)
+        self.hidden_size = self.encoder.hidden_size
+        self.model_name = self.encoder.model_name_loaded or "fallback"
 
-        self._load_model()
         self.load_corpus()
 
-    def _load_model(self) -> None:
-        if AutoTokenizer is None or AutoModel is None or torch is None:
-            logger.warning("Transformers/Torch unavailable, engine will use hash embeddings fallback")
-            return
-
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            self.model = AutoModel.from_pretrained(self.model_name)
-            self.model.to(self.device)
-            self.model.eval()
-            self.hidden_size = int(getattr(self.model.config, "hidden_size", FALLBACK_EMBEDDING_SIZE))
-            logger.info("Loaded embedding model '%s' on %s", self.model_name, self.device)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Failed to load model '%s', fallback enabled: %s", self.model_name, exc)
-            self.model = None
-            self.tokenizer = None
-            self.hidden_size = FALLBACK_EMBEDDING_SIZE
+    @property
+    def model(self):
+        """Backward compatibility: check if encoder model is loaded."""
+        return self.encoder.model
 
     def load_corpus(self, corpus_root: Optional[Path] = None) -> None:
         corpus_root = corpus_root or Path(__file__).parent.parent / "corpus"
@@ -270,21 +265,21 @@ class AnalysisEngine:
 
     def get_vectors(self, target_word: str, force_recompute: bool = False) -> pd.DataFrame:
         if self.use_cache and not force_recompute:
-            cached = load_vectors_cache(target_word)
+            cached = load_vectors_cache(target_word, self.model_name)
             if cached is not None:
+                logger.info("Loaded vectors from cache for '%s'", target_word)
                 return cached
 
         sentences = self._extract_sentences(target_word)
         if not sentences:
             return pd.DataFrame(columns=["text", "period", "source", "vector"])
 
+        # Batch encode for efficiency
+        texts = [s.text for s in sentences]
+        vectors = self.encoder.encode_batch(texts, target_word)
+
         rows: List[Dict[str, Any]] = []
-        for sentence in sentences:
-            try:
-                vector = self._get_embedding(sentence.text, target_word)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Embedding failed for one sentence; skipping. reason=%s", exc)
-                continue
+        for sentence, vector in zip(sentences, vectors):
             rows.append(
                 {
                     "text": sentence.text,
@@ -296,7 +291,12 @@ class AnalysisEngine:
 
         df = pd.DataFrame(rows)
         if self.use_cache and not df.empty:
-            save_vectors_cache(target_word, df)
+            save_vectors_cache(target_word, df, self.model_name)
+
+        # Also save as feather for persistence
+        if not df.empty:
+            save_usages_feather(target_word, df, self.model_name)
+
         return df
 
     def _extract_sentences(self, target_word: str) -> List[Sentence]:
@@ -321,54 +321,6 @@ class AnalysisEngine:
 
         return collected
 
-    def _get_embedding(self, text: str, target_word: str) -> np.ndarray:
-        if self.model is None or self.tokenizer is None or torch is None:
-            return self._fallback_embedding(text)
-
-        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=512, return_offsets_mapping=True)
-        input_ids = inputs["input_ids"].to(self.device)
-        attention_mask = inputs["attention_mask"].to(self.device)
-        offsets = inputs["offset_mapping"].squeeze().tolist()
-
-        token_indices = self._find_target_token_indices(text, target_word, offsets)
-        if not token_indices:
-            token_indices = [0]
-
-        with torch.no_grad():
-            outputs = self.model(input_ids=input_ids, attention_mask=attention_mask)
-
-        hidden_states = outputs.last_hidden_state.squeeze(0)
-        embedding = hidden_states[token_indices].cpu().numpy().mean(axis=0)
-        norm = np.linalg.norm(embedding) + 1e-8
-        return embedding / norm
-
-    @staticmethod
-    def _fallback_embedding(text: str) -> np.ndarray:
-        vec = np.zeros(FALLBACK_EMBEDDING_SIZE, dtype=np.float32)
-        words = re.findall(r"\w+", text.lower())
-        if not words:
-            return vec
-        for word in words:
-            index = int(hashlib.md5(word.encode("utf-8")).hexdigest(), 16) % FALLBACK_EMBEDDING_SIZE  # noqa: S324
-            vec[index] += 1.0
-        norm = np.linalg.norm(vec)
-        return vec if norm == 0 else vec / norm
-
-    @staticmethod
-    def _find_target_token_indices(text: str, target_word: str, offset_mapping: List[Tuple[int, int]]) -> List[int]:
-        indices: List[int] = []
-        word_lower = target_word.lower()
-        text_lower = text.lower()
-
-        for idx, (start, end) in enumerate(offset_mapping):
-            if start >= end:
-                continue
-            token_text = text_lower[start:end]
-            if word_lower in token_text:
-                indices.append(idx)
-
-        return indices
-
     def cluster(self, df: pd.DataFrame, umap_params: Optional[Dict[str, Any]] = None, hdbscan_params: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
         if df.empty:
             return df.copy()
@@ -383,17 +335,34 @@ class AnalysisEngine:
             result_df["label"] = np.zeros(n_samples, dtype=int)
             return result_df
 
+        # Get default params from pipeline config
+        cfg_umap = self.pipeline_config.umap
+        cfg_hdbscan = self.pipeline_config.hdbscan
+
+        default_umap = {
+            "n_neighbors": cfg_umap.n_neighbors,
+            "min_dist": cfg_umap.min_dist,
+            "n_components": cfg_umap.n_components,
+            "metric": cfg_umap.metric,
+        }
+        default_hdbscan = {
+            "min_cluster_size": cfg_hdbscan.min_cluster_size,
+            "min_samples": cfg_hdbscan.min_samples,
+            "metric": cfg_hdbscan.metric,
+            "cluster_selection_method": cfg_hdbscan.cluster_selection_method,
+        }
+
         # 2D projection with robust fallback.
         try:
             if umap is None:
                 raise RuntimeError("umap not installed")
-            u_params = {**DEFAULT_UMAP_PARAMS, **(umap_params or {})}
+            u_params = {**default_umap, **(umap_params or {})}
             reducer = umap.UMAP(
                 n_neighbors=min(int(u_params["n_neighbors"]), max(2, n_samples - 1)),
                 min_dist=float(u_params["min_dist"]),
                 n_components=2,
                 metric=u_params["metric"],
-                random_state=42,
+                random_state=cfg_umap.random_state,
             )
             embeddings_2d = reducer.fit_transform(vectors)
         except Exception as exc:  # noqa: BLE001
@@ -407,12 +376,12 @@ class AnalysisEngine:
         try:
             if hdbscan is None:
                 raise RuntimeError("hdbscan not installed")
-            h_params = {**DEFAULT_HDBSCAN_PARAMS, **(hdbscan_params or {})}
+            h_params = {**default_hdbscan, **(hdbscan_params or {})}
             min_cluster_size = min(max(2, int(h_params["min_cluster_size"])), n_samples)
-            min_samples = min(max(1, int(h_params["min_samples"])), min_cluster_size)
+            min_samples_val = min(max(1, int(h_params["min_samples"])), min_cluster_size)
             clusterer = hdbscan.HDBSCAN(
                 min_cluster_size=min_cluster_size,
-                min_samples=min_samples,
+                min_samples=min_samples_val,
                 metric=h_params["metric"],
                 cluster_selection_method=h_params["cluster_selection_method"],
             )
@@ -471,7 +440,7 @@ class AnalysisEngine:
 
         cache_params = {"umap": umap_params or {}, "hdbscan": hdbscan_params or {}}
         if self.use_cache and not force_recompute:
-            cached = load_clustering_cache(word, cache_params)
+            cached = load_clustering_cache(word, cache_params, self.model_name)
             if cached is not None:
                 cached["processing_time_ms"] = int((time.time() - started) * 1000)
                 return cached
@@ -501,20 +470,25 @@ class AnalysisEngine:
             "confidence_score": self._calculate_confidence(clustered_df),
             "analysis_timestamp": pd.Timestamp.now().isoformat(),
             "processing_time_ms": int((time.time() - started) * 1000),
-            "model_info": {
-                "name": self.model_name,
-                "hidden_size": str(self.hidden_size),
-                "device": str(self.device),
-                "fallback_mode": str(self.model is None),
-            },
+            "model_info": self.encoder.get_model_info(),
             "algorithm_params": {
-                "umap": umap_params or DEFAULT_UMAP_PARAMS,
-                "hdbscan": hdbscan_params or DEFAULT_HDBSCAN_PARAMS,
+                "umap": umap_params or {
+                    "n_neighbors": self.pipeline_config.umap.n_neighbors,
+                    "min_dist": self.pipeline_config.umap.min_dist,
+                    "n_components": self.pipeline_config.umap.n_components,
+                    "metric": self.pipeline_config.umap.metric,
+                },
+                "hdbscan": hdbscan_params or {
+                    "min_cluster_size": self.pipeline_config.hdbscan.min_cluster_size,
+                    "min_samples": self.pipeline_config.hdbscan.min_samples,
+                    "metric": self.pipeline_config.hdbscan.metric,
+                    "cluster_selection_method": self.pipeline_config.hdbscan.cluster_selection_method,
+                },
             },
         }
 
         if self.use_cache:
-            save_clustering_cache(word, cache_params, result)
+            save_clustering_cache(word, cache_params, result, self.model_name)
 
         return result
 
@@ -617,8 +591,8 @@ class AnalysisEngine:
 _engine_instance: Optional[AnalysisEngine] = None
 
 
-def get_engine(model_name: str = DEFAULT_MODEL_NAME, force_reload: bool = False) -> AnalysisEngine:
+def get_engine(force_reload: bool = False) -> AnalysisEngine:
     global _engine_instance
     if _engine_instance is None or force_reload:
-        _engine_instance = AnalysisEngine(model_name=model_name)
+        _engine_instance = AnalysisEngine()
     return _engine_instance

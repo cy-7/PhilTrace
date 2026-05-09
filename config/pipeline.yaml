@@ -1,0 +1,77 @@
+# PhilTrace Pipeline Configuration
+# ==================================
+# 集中管理 encoder、降维、聚类、LLM 诠释等参数
+
+encoder:
+  # 默认使用 ModernBERT-large，显存不足时回退 base
+  model_name: "answerdotai/ModernBERT-large"
+  fallback_model_name: "answerdotai/ModernBERT-base"
+  # 输出维度：large=1024, base=768
+  # 会在运行时从 model.config.hidden_size 自动获取
+
+  # Subword pooling 策略：当目标词被拆成多个 subword 时
+  # 可选: "mean" (推荐) | "first"
+  subword_pooling: "mean"
+
+  # 隐藏层选择：-1 表示最后一层，可配置中间层
+  # 例如 -2 表示倒数第二层
+  hidden_layer_index: -1
+
+  # 长文本处理
+  max_length: 8192
+  # 截断策略: "truncate" | "sliding_window"
+  long_text_strategy: "truncate"
+  # sliding window 参数（仅 sliding_window 策略生效）
+  sliding_window_size: 4096
+  sliding_window_stride: 2048
+
+  # batch 处理
+  batch_size: 16
+
+umap:
+  n_neighbors: 15
+  min_dist: 0.1
+  n_components: 2
+  metric: "cosine"
+  random_state: 42
+
+hdbscan:
+  min_cluster_size: 15
+  min_samples: 5
+  metric: "euclidean"
+  cluster_selection_method: "eom"
+
+interpretation:
+  # LLM provider: "ollama" | "openai" | "lab_phil_llm"
+  provider: "ollama"
+  # Ollama 模型名（运行时会检查可用性）
+  # 可用: gemma4:31b, gemma3:27b, qwen3:8b
+  ollama_model: "qwen3:8b"
+  # 每个簇采样的代表样本数
+  n_samples: 8
+  # 采样策略: "centroid_nearest" | "random" | "diverse"
+  sampling_strategy: "centroid_nearest"
+  # LLM 调用超时（秒）
+  timeout: 120
+  # 重试次数
+  max_retries: 3
+  # 重试间隔（秒）
+  retry_delay: 2
+  # 缓存开关
+  enable_cache: true
+  # prompt 模板文件路径（相对项目根目录）
+  prompt_template_path: "prompts/sense_interpretation.md"
+
+cache:
+  # 是否在 cache key 中包含模型名
+  include_model_in_key: true
+  # 缓存 TTL（秒），0 表示永不过期
+  ttl_seconds: 604800  # 7 days
+
+output:
+  # 诠释结果输出目录
+  interpretations_dir: "data/interpretations"
+  # 是否同时输出 feather 格式
+  save_feather: true
+  # usages 持久化
+  save_usages_feather: true
