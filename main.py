@@ -1,4 +1,4 @@
-﻿"""PhilTrace Streamlit application entrypoint."""
+"""PhilTrace Streamlit application entrypoint."""
 
 from __future__ import annotations
 

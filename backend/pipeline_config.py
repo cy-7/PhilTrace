@@ -50,6 +50,8 @@ class HDBSCANConfig:
 class InterpretationConfig:
     provider: str = "ollama"
     ollama_model: str = "qwen2.5:72b"
+    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = "https://api.deepseek.com"
     n_samples: int = 8
     sampling_strategy: str = "centroid_nearest"
     timeout: int = 120

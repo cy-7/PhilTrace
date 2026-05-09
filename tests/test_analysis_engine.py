@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests for the ModernBERT encoder and updated analysis engine.
 """
 

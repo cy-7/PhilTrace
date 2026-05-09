@@ -42,11 +42,15 @@ hdbscan:
   cluster_selection_method: "eom"
 
 interpretation:
-  # LLM provider: "ollama" | "openai" | "lab_phil_llm"
+  # LLM provider: "ollama" | "deepseek" | "openai" | "lab_phil_llm"
   provider: "ollama"
   # Ollama 模型名（运行时会检查可用性）
   # 可用: gemma4:31b, gemma3:27b, qwen3:8b
   ollama_model: "qwen3:8b"
+  # DeepSeek API 配置
+  deepseek_model: "deepseek-chat"
+  deepseek_base_url: "https://api.deepseek.com"
+  # API Key 通过环境变量 DEEPSEEK_API_KEY 设置，不要写在配置文件中
   # 每个簇采样的代表样本数
   n_samples: 8
   # 采样策略: "centroid_nearest" | "random" | "diverse"

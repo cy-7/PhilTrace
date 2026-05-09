@@ -1,4 +1,4 @@
-﻿"""
+"""
 Analysis engine for concept drift analysis.
 
 Orchestrates the full pipeline: corpus extraction → embedding → UMAP → HDBSCAN → results.

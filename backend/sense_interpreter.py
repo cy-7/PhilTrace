@@ -493,6 +493,104 @@ class OpenAIInterpreter(SenseInterpreter):
 
 
 # ============================================================================
+# DeepSeek Implementation
+# ============================================================================
+
+class DeepSeekInterpreter(SenseInterpreter):
+    """Sense interpreter using DeepSeek API (OpenAI-compatible)."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        config: Optional[InterpretationConfig] = None,
+    ):
+        super().__init__(config)
+        import os
+        self._api_key = api_key or os.getenv("DEEPSEEK_API_KEY", "")
+        self._model = model or self.config.deepseek_model
+        self._base_url = base_url or self.config.deepseek_base_url
+
+        if not self._api_key:
+            logger.warning("DEEPSEEK_API_KEY not set. DeepSeek calls will fail.")
+
+    def get_model_name(self) -> str:
+        return f"deepseek/{self._model}"
+
+    def _call_llm(self, prompt: str) -> str:
+        """Call DeepSeek chat API."""
+        import httpx
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.3,
+            "max_tokens": 2048,
+        }
+
+        with httpx.Client(timeout=self.config.timeout) as client:
+            response = client.post(
+                f"{self._base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+
+    def chat_stream(self, message: str, system_prompt: Optional[str] = None):
+        """Stream chat response from DeepSeek API. Yields text chunks."""
+        import httpx
+
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": message})
+
+        payload = {
+            "model": self._model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 4096,
+            "stream": True,
+        }
+
+        with httpx.Client(timeout=self.config.timeout) as client:
+            with client.stream(
+                "POST",
+                f"{self._base_url}/chat/completions",
+                headers=headers,
+                json=payload,
+            ) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    if not line or not line.startswith("data: "):
+                        continue
+                    data_str = line[6:]
+                    if data_str.strip() == "[DONE]":
+                        break
+                    try:
+                        data = json.loads(data_str)
+                        delta = data.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                    except (json.JSONDecodeError, IndexError, KeyError):
+                        continue
+
+
+# ============================================================================
 # Lab Philosophy LLM Implementation (placeholder for future)
 # ============================================================================
 
@@ -555,7 +653,7 @@ def create_interpreter(
     Factory function to create the appropriate interpreter.
 
     Args:
-        provider: Override provider from config. Options: "ollama", "openai", "lab_phil_llm".
+        provider: Override provider from config. Options: "ollama", "deepseek", "openai", "lab_phil_llm".
         config: Optional config override.
         **kwargs: Additional arguments passed to the interpreter constructor.
 
@@ -567,6 +665,11 @@ def create_interpreter(
 
     if provider == "ollama":
         return OllamaInterpreter(config=cfg)
+    elif provider == "deepseek":
+        api_key = kwargs.get("api_key")
+        model = kwargs.get("model")
+        base_url = kwargs.get("base_url")
+        return DeepSeekInterpreter(api_key=api_key, model=model, base_url=base_url, config=cfg)
     elif provider == "openai":
         api_key = kwargs.get("api_key", "")
         model = kwargs.get("model", "gpt-4o")
