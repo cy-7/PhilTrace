@@ -8,13 +8,13 @@
 Diachronic word-sense exploration for philosophy</p>
 
 <p align="center">
-  <a href="https://github.com/user-attachments/assets/2d68548a-34dc-4b99-935c-87d6c2e7d9be">▶ 观看演示 · 1:55</a> &nbsp;·&nbsp;
+  <a href="https://github.com/user-attachments/assets/d71d99f6-3621-4e75-89f9-4e69a24dfdd4">▶ 观看演示 · 1:55</a> &nbsp;·&nbsp;
   <a href="#运行样例">分析样例</a> &nbsp;·&nbsp;
   <a href="#快速开始">本地复现</a>
 </p>
 
 <p align="center">
-  <a href="https://github.com/user-attachments/assets/2d68548a-34dc-4b99-935c-87d6c2e7d9be"><img src="assets/philtrace-demo.jpg" alt="PhilTrace 对 reason 的分析界面，左侧为语义空间散点图，右侧为语义簇占比变化" width="880"></a>
+  <a href="https://github.com/user-attachments/assets/d71d99f6-3621-4e75-89f9-4e69a24dfdd4"><img src="assets/philtrace-demo.jpg" alt="PhilTrace 对 reason 的分析界面，左侧为语义空间散点图，右侧为语义簇占比变化" width="880"></a>
 </p>
 
 输入一个英文术语，例如 `reason`，PhilTrace 会从四个时期的哲学文本中提取包含该词的片段，把相近的用法聚成簇，并展示各簇的时期分布。代表语句附有来源，可回到对应的语料文件核对上下文。录屏还展示了选配的哲学对话功能。
