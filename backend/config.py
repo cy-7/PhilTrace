@@ -1,4 +1,4 @@
-﻿"""
+"""
 Backend runtime configuration for PhilTrace.
 """
 

@@ -1,4 +1,4 @@
-﻿"""
+"""
 LLM service integration with local Ollama.
 """
 

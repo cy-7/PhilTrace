@@ -1,4 +1,4 @@
-﻿"""
+"""
 API client for PhilTrace frontend.
 """
 

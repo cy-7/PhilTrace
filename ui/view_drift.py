@@ -1,9 +1,11 @@
-﻿"""Concept drift study page."""
+"""Concept drift study page."""
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+import json
+from typing import Any, Dict, List, Optional
 
+import httpx
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -396,6 +398,13 @@ def render_drift_view() -> None:
     if result.cluster_stats:
         render_cluster_stats(result.cluster_stats)
 
+    # ====================================================================
+    # Sense Interpretation Panel
+    # ====================================================================
+    st.markdown("---")
+    st.markdown('<h2 class="phil-section-title">语义簇 LLM 诠释</h2>', unsafe_allow_html=True)
+    render_interpretation_panel(concept, result.cluster_stats)
+
     st.markdown("---")
     st.markdown('<h2 class="phil-section-title">可视化分析</h2>', unsafe_allow_html=True)
     left, right = st.columns(2)
@@ -424,6 +433,134 @@ def render_drift_view() -> None:
 
         if not result.scatter_data.empty:
             st.dataframe(result.scatter_data.head(10), use_container_width=True)
+
+
+# ============================================================================
+# Sense Interpretation Panel
+# ============================================================================
+
+BACKEND_URL = "http://localhost:8000"
+
+
+def render_interpretation_panel(concept: str, cluster_stats: List[Dict[str, Any]]) -> None:
+    """Render the LLM sense interpretation panel with provider selection."""
+    if not cluster_stats:
+        st.info("无聚类结果，无法进行语义诠释。")
+        return
+
+    # Provider selection
+    col_provider, col_key, col_btn = st.columns([2, 3, 1])
+
+    with col_provider:
+        provider = st.selectbox(
+            "LLM 提供者",
+            options=["ollama", "deepseek"],
+            format_func=lambda x: {"ollama": "本地 Ollama", "deepseek": "DeepSeek API"}[x],
+            key="interpret_provider",
+            help="选择用于语义簇诠释的 LLM 服务",
+        )
+
+    with col_key:
+        api_key = ""
+        if provider == "deepseek":
+            api_key = st.text_input(
+                "DeepSeek API Key",
+                type="password",
+                key="interpret_deepseek_key",
+                help="输入 DeepSeek API Key（也可通过环境变量 DEEPSEEK_API_KEY 设置）",
+            )
+        else:
+            st.caption("本地 Ollama 无需 API Key")
+
+    with col_btn:
+        st.markdown("<br>", unsafe_allow_html=True)
+        run_interpret = st.button("生成诠释", key="run_interpret_btn", type="primary")
+
+    # Show cached interpretations if available
+    cache_key = f"interpretations_{concept}_{provider}"
+    if cache_key in st.session_state:
+        _render_interpretation_results(st.session_state[cache_key])
+
+    # Run interpretation
+    if run_interpret:
+        with st.spinner(f"正在使用 {provider} 生成语义簇诠释..."):
+            try:
+                payload: Dict[str, Any] = {
+                    "word": concept,
+                    "provider": provider,
+                }
+                if provider == "deepseek" and api_key:
+                    payload["api_key"] = api_key
+
+                response = httpx.post(
+                    f"{BACKEND_URL}/interpret",
+                    json=payload,
+                    timeout=300.0,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+                st.session_state[cache_key] = data
+                _render_interpretation_results(data)
+
+            except httpx.HTTPStatusError as exc:
+                detail = exc.response.text
+                st.error(f"诠释请求失败 ({exc.response.status_code}): {detail}")
+            except httpx.ConnectError:
+                st.error("无法连接后端。请确认后端已运行：uvicorn backend.main:app --reload")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"诠释失败: {exc}")
+
+
+def _render_interpretation_results(data: Dict[str, Any]) -> None:
+    """Render interpretation results from API response."""
+    interpretations = data.get("interpretations", [])
+    if not interpretations:
+        st.warning("未生成任何诠释结果。")
+        return
+
+    model_name = data.get("model", "unknown")
+    st.caption(f"模型: {model_name} | 簇数: {data.get('n_clusters', 0)}")
+
+    for interp in interpretations:
+        sense_id = interp.get("sense_id", "?")
+        description = interp.get("description", "")
+        keywords = interp.get("keywords", [])
+        tradition = interp.get("tradition", "")
+        period = interp.get("period", "")
+        is_fallback = interp.get("is_fallback", False)
+
+        badge_color = "#E53935" if is_fallback else "#1E88E5"
+        badge_text = "Fallback" if is_fallback else period
+
+        keywords_html = " ".join(
+            f'<span style="background:#F5F5F5;padding:2px 8px;border-radius:4px;'
+            f'font-size:0.82rem;margin-right:4px;">{kw}</span>'
+            for kw in keywords[:5]
+        )
+
+        tradition_html = ""
+        if tradition:
+            tradition_html = (
+                f'<div style="margin-top:0.3rem;font-size:0.82rem;color:#666;">'
+                f'哲学传统: {tradition}</div>'
+            )
+
+        st.markdown(
+            f"""
+            <div class="phil-card fade-in" style="margin-bottom:0.8rem;padding:1rem;">
+              <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+                <span style="font-weight:700;font-size:1.1rem;">C{sense_id}</span>
+                <span style="background:{badge_color};color:#fff;padding:2px 8px;
+                       border-radius:4px;font-size:0.75rem;">{badge_text}</span>
+              </div>
+              <p style="margin:0.3rem 0;">{description}</p>
+              <div style="margin-top:0.4rem;">{keywords_html}</div>
+              {tradition_html}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 if __name__ == "__main__":

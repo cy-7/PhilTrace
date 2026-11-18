@@ -1,325 +1,91 @@
-﻿# PhilTrace - 哲学概念历时分析平台
+<p align="center">
+  <img src="assets/logo.svg" width="64" alt="">
+</p>
 
-PhilTrace 是一个基于自然语言处理和机器学习技术的哲学概念分析平台，旨在揭示哲学概念在历史长河中的语义演变规律。本项目结合了现代 NLP 技术（BERT 嵌入、UMAP 降维、HDBSCAN 聚类）与本地大语言模型（Ollama），为哲学研究提供了创新的数字人文工具。
+<h1 align="center">PhilTrace</h1>
 
-## 🎯 核心功能
+<p align="center"><strong>在哲学文本中追踪词义随时代的变化</strong><br>
+Diachronic word-sense exploration for philosophy</p>
 
-### 1. 概念漂移研究（Concept Drift Analysis）
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/d71d99f6-3621-4e75-89f9-4e69a24dfdd4">▶ 观看演示 · 1:55</a> &nbsp;·&nbsp;
+  <a href="#运行样例">分析样例</a> &nbsp;·&nbsp;
+  <a href="#快速开始">本地复现</a>
+</p>
 
-通过对 110+ 篇经典哲学文献的语料库分析，追踪哲学概念在四个历史时期的语义演变：
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/d71d99f6-3621-4e75-89f9-4e69a24dfdd4"><img src="assets/philtrace-demo.jpg" alt="PhilTrace 对 reason 的分析界面，左侧为语义空间散点图，右侧为语义簇占比变化" width="880"></a>
+</p>
 
-- **Ancient（古代）**：公元前 6 世纪至公元 5 世纪（柏拉图、亚里士多德、斯多葛学派等）
-- **Medieval（中世纪）**：5 世纪至 15 世纪（奥古斯丁、阿奎那等）
-- **Modern（近代）**：15 世纪至 19 世纪末（笛卡尔、康德、黑格尔、尼采等）
-- **Contemporary（当代）**：20 世纪至今（现象学、存在主义、分析哲学、后现代主义等）
+输入一个英文术语，例如 `reason`，PhilTrace 会从四个时期的哲学文本中提取包含该词的片段，把相近的用法聚成簇，并展示各簇的时期分布。代表语句附有来源，可回到对应的语料文件核对上下文。录屏还展示了选配的哲学对话功能。
 
-**技术实现**：
-- 使用 BERT 模型（sentence-transformers/all-MiniLM-L6-v2）生成上下文感知的句子嵌入
-- UMAP 算法将高维语义向量投影到二维空间进行可视化
-- HDBSCAN 密度聚类算法识别语义簇
-- c-TF-IDF 提取每个语义簇的关键词特征
+## 从原句到语义簇
 
-**可视化输出**：
-- 语义空间散点图：展示概念在不同时期的分布模式
-- 语义簇占比演化图：追踪各语义簇的历史消长
-- 漂移趋势图：量化语义稳定性和概念使用频率
-- 代表性引文：提供原文溯源和学术引用
+1. **提取用例。** 从 110 个语料文件中匹配目标词，保留文本片段、来源文件和时期。
+2. **编码目标词。** 用 ModernBERT-large 读取句内上下文，通过 tokenizer 的字符偏移定位目标词，再对其子词表示做平均池化。这样，同一个词在不同上下文中会得到不同的向量。
+3. **聚类与对照。** 用 UMAP 将向量投影到二维，再用 HDBSCAN 聚类。界面展示语义散点、各时期簇占比和代表语句。
+4. **解读语义簇。** 可用 Ollama 或 DeepSeek 根据代表样本生成簇描述和关键词，回到原句检验命名是否贴切。
 
-### 2. 哲学对话（Philosophy Chat）
+## 运行样例
 
-集成本地部署的大语言模型（通过 Ollama），提供专业的哲学讨论助手：
+用 ModernBERT-large 和 Ollama 的 `qwen3:8b` 分析 `justice`，一次实际运行得到 **2,819 条用例、19 个簇、97 个噪声点**。
 
-- **流式输出**：实时显示模型生成内容，提升交互体验
-- **模型选择**：支持多种 Ollama 模型（Qwen2、Llama3、Mistral 等）
-- **哲学风格增强**：内置专业哲学提示词，引导模型进行学术化讨论
-- **对话历史**：保持上下文连贯性，支持深度对话
+| 古代 | 中世纪 | 近代 | 当代 |
+| ---: | ---: | ---: | ---: |
+| 1,333 | 320 | 860 | 306 |
 
-**哲学提示词特色**：
-- 历史脉络把握：从古希腊到当代的完整哲学史知识
-- 概念分析能力：精确定义、多维度解析、语义漂移追踪
-- 文本解读方法：细读、论证结构分析、跨文本比较
-- 引用规范：严格的学术引用格式和溯源要求
-- 批判性思维：论证评估、谬误识别、多视角权衡
+模型把第 5 簇的 38 条用例解读为「作为道德义务或社会规则的正义」。其中一条来自[亚里士多德《政治学》](corpus/ancient/Aristotle_Politics.txt)：
 
-## 🏗️ 技术架构
+> Justice, for instance, is a virtue, and so necessary
 
-### 前端（Frontend）
-- **框架**：Streamlit 1.32+
-- **UI 设计**：Bauhaus 风格（极简主义、几何形态、功能优先）
-- **可视化**：Plotly Express（交互式图表）
-- **状态管理**：Streamlit Session State
+原句把正义称为一种德性。对照其余用例，可以进一步检查用「社会规则」概括这一簇是否合适。语料混合了经典著作的英文译本和百科条目，切分也保留了部分标题与重复文本。例如，第 0 簇的代表样本重复出现了休谟的同一条章节标题。结果适合用来寻找值得细读的材料。
 
-### 后端（Backend）
-- **框架**：FastAPI 0.110+
-- **异步支持**：asyncio + httpx
-- **数据验证**：Pydantic v2
-- **日志系统**：结构化日志 + 请求追踪（X-Request-ID）
-- **错误处理**：统一异常处理和降级策略
+## 快速开始
 
-### 核心算法引擎
-- **嵌入模型**：sentence-transformers（BERT 系列）
-- **降维算法**：UMAP（Uniform Manifold Approximation and Projection）
-- **聚类算法**：HDBSCAN（Hierarchical Density-Based Spatial Clustering）
-- **关键词提取**：c-TF-IDF（class-based TF-IDF）
-- **设备支持**：自动检测 CUDA/MPS，支持 CPU 降级
-
-### LLM 集成
-- **服务**：Ollama（本地部署）
-- **通信协议**：HTTP/SSE（Server-Sent Events）
-- **超时控制**：600 秒（支持长时间推理）
-- **流式传输**：支持实时 token 流式输出
-
-### 数据管理
-- **语料库**：110+ 篇哲学经典文献（TXT 格式）
-- **缓存机制**：向量缓存 + 聚类结果缓存（Pickle 序列化）
-- **缓存策略**：TTL 7 天，支持强制重算
-- **数据持久化**：原子写入，防止缓存损坏
-
-## 📁 项目结构
-
-```
-PhilTrace/
-├── main.py                      # Streamlit 应用入口
-├── requirements.txt             # 前端依赖
-├── requirements_backend.txt     # 后端依赖
-├── README.md                    # 项目文档
-├── .gitignore                   # Git 忽略规则
-│
-├── ui/                          # 前端界面
-│   ├── view_drift.py           # 概念漂移页面
-│   ├── view_chat.py            # 对话页面
-│   └── style.py                # Bauhaus UI 样式
-│
-├── backend/                     # 后端服务
-│   ├── main.py                 # FastAPI 应用
-│   ├── analysis_engine.py      # 概念分析引擎
-│   ├── llm_service.py          # LLM 服务封装
-│   ├── philosophy_prompts.py   # 哲学提示词
-│   ├── data_models.py          # Pydantic 数据模型
-│   ├── config.py               # 配置管理
-│   └── logging_utils.py        # 日志工具
-│
-├── utils/                       # 工具模块
-│   ├── api_client.py           # API 客户端
-│   └── api_mock.py             # Mock 数据（开发/测试）
-│
-├── corpus/                      # 哲学文献语料库
-│   ├── ancient/                # 古代哲学（27 篇）
-│   ├── medieval/               # 中世纪哲学（10 篇）
-│   ├── modern/                 # 近代哲学（30 篇）
-│   └── contemporary/           # 当代哲学（43 篇）
-│
-├── tests/                       # 单元测试
-│   ├── test_analysis_engine.py # 引擎测试
-│   └── test_backend_api.py     # API 测试
-│
-├── data/                        # 运行时数据
-│   └── cache/                  # 向量和聚类缓存
-│
-└── assets/                      # 静态资源
-    └── logo.svg                # 项目 Logo
-```
-
-## 🚀 快速开始
-
-### 环境要求
-
-- Python 3.9+
-- 8GB+ RAM（推荐 16GB）
-- （可选）NVIDIA GPU + CUDA 11.0+（加速嵌入计算）
-- （可选）Ollama 服务（用于对话功能）
-
-### 1. 安装依赖
+准备 Python 3.11 或 3.12。首次分析会从 Hugging Face 下载 ModernBERT 权重，CPU 可以运行。
 
 ```bash
-# 安装前端依赖
-pip install -r requirements.txt
-
-# 安装后端依赖
-pip install -r requirements_backend.txt
+git clone https://github.com/cy-7/PhilTrace.git
+cd PhilTrace
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt -r requirements_backend.txt
 ```
 
-### 2. 启动后端服务
+在两个终端的项目根目录中激活同一个虚拟环境，分别启动后端和前端。
 
 ```bash
-uvicorn backend.main:app --reload
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
-
-后端将在 `http://127.0.0.1:8000` 启动，可访问 `http://127.0.0.1:8000/docs` 查看 API 文档。
-
-### 3. 启动前端应用
 
 ```bash
-streamlit run main.py
+python -m streamlit run main.py
 ```
 
-前端将在 `http://localhost:8501` 启动。
+打开 [Streamlit 界面](http://localhost:8501)，在「概念漂移研究」中输入 `justice` 或 `reason`。[API 文档](http://127.0.0.1:8000/docs)提供 `POST /analyze` 和 `POST /interpret`。基础分析无需 LLM。复现时可在页面末尾的「开发者信息」查看编码模型，后端离线时前端会回退到模拟数据，编码器加载失败时会使用哈希向量兜底。
 
-### 4. （可选）安装 Ollama
+<details>
+<summary>运行 LLM 解读和生成报告</summary>
 
-对话功能需要本地运行 Ollama 服务：
+启动 Ollama 后，下载配置中的默认模型并运行脚本。
 
 ```bash
-# 安装 Ollama（参考 https://ollama.ai）
-# 拉取模型
-ollama pull qwen2:7b
-ollama pull llama3:8b
-
-# Ollama 默认运行在 http://127.0.0.1:11434
+ollama pull qwen3:8b
+python -m scripts.run_demo --word justice --provider ollama
 ```
 
-## 🎮 使用指南
+Markdown 报告写入 `data/demo_output/demo_justice.md`，结构化解读写入 `data/interpretations/justice_interpretations.json`。也可以在网页选择 DeepSeek，填写 API Key，或在启动后端前设置 `DEEPSEEK_API_KEY`。使用 DeepSeek 时，代表语句会传给所选服务生成解读。
 
-### 概念漂移研究
+</details>
 
-1. 在左侧导航选择"概念漂移研究"
-2. 输入要分析的哲学概念（英文），例如：
-   - `reason`（理性）
-   - `justice`（正义）
-   - `truth`（真理）
-   - `freedom`（自由）
-   - `consciousness`（意识）
-3. （可选）展开"算法参数微调"调整 UMAP 和 HDBSCAN 参数
-4. 点击"开始分析"，等待处理完成（首次分析需要 30-60 秒）
-5. 查看可视化结果：
-   - 跨时期定义：每个时期的概念定义
-   - 语义空间散点图：概念的语义分布
-   - 语义簇占比演化：各语义簇的历史变化
-   - 代表性语句：原文引用和来源
+## 代码入口
 
-### 哲学对话
+| 文件 | 用途 |
+| --- | --- |
+| [backend/analysis_engine.py](backend/analysis_engine.py) | 语料提取、向量缓存、聚类与时期统计 |
+| [backend/modernbert_encoder.py](backend/modernbert_encoder.py) | 目标词定位与上下文编码 |
+| [backend/sense_interpreter.py](backend/sense_interpreter.py) | 代表样本采集与 LLM 解读 |
+| [config/pipeline.yaml](config/pipeline.yaml) | 模型与算法参数 |
+| [corpus/](corpus/) | 古代 27、中世纪 10、近代 30、当代 43 个语料文件 |
 
-1. 在左侧导航选择"自由对话"
-2. 在右侧设置面板选择模型和是否启用哲学风格
-3. 在输入框输入问题，例如：
-   - "请解释康德的先验综合判断"
-   - "比较柏拉图和亚里士多德的形式理论"
-   - "什么是现象学还原？"
-4. 观察流式输出的回答
-5. 继续追问以深化讨论
-
-## ⚙️ 配置选项
-
-通过环境变量自定义运行参数：
-
-```bash
-# 日志级别（DEBUG, INFO, WARNING, ERROR）
-export PHILTRACE_LOG_LEVEL=INFO
-
-# 启动时是否预加载分析引擎
-export PHILTRACE_BOOTSTRAP_ENGINE=true
-
-# 是否启用缓存
-export PHILTRACE_ENABLE_CACHE=true
-
-# 缓存有效期（秒）
-export PHILTRACE_CACHE_TTL_SECONDS=604800
-
-# API 超时时间（秒）
-export PHILTRACE_API_TIMEOUT_SECONDS=600
-
-# Ollama 服务地址
-export PHILTRACE_OLLAMA_BASE_URL=http://127.0.0.1:11434
-
-# 后端监听地址和端口
-export PHILTRACE_HOST=0.0.0.0
-export PHILTRACE_PORT=8000
-```
-
-## 🧪 运行测试
-
-```bash
-# 运行所有测试
-python -m unittest discover -s tests -p "test_*.py" -v
-
-# 运行特定测试
-python -m unittest tests.test_analysis_engine -v
-python -m unittest tests.test_backend_api -v
-```
-
-## 📊 性能优化
-
-### 缓存机制
-- **向量缓存**：首次分析后，概念的句子嵌入会被缓存，后续分析速度提升 10-20 倍
-- **聚类缓存**：相同参数的聚类结果会被缓存，避免重复计算
-- **缓存失效**：可通过"强制重算"选项绕过缓存
-
-### GPU 加速
-- 自动检测 CUDA（NVIDIA）或 MPS（Apple Silicon）
-- GPU 加速可将嵌入计算速度提升 5-10 倍
-- CPU 模式下使用优化的 NumPy 运算
-
-### 超时控制
-- 概念分析超时：600 秒（处理大量句子）
-- LLM 对话超时：600 秒（支持长文本生成）
-- 健康检查超时：10 秒
-
-
-## 🔬 技术亮点
-
-### 1. 语义漂移量化
-通过聚类数量和分布计算语义稳定性指标，量化概念的历史演变程度。
-
-### 2. 上下文感知嵌入
-使用 BERT 模型生成上下文相关的句子嵌入，而非简单的词向量，更准确捕捉概念在不同语境中的含义。
-
-### 3. 密度聚类
-HDBSCAN 算法无需预设簇数，自动识别不同密度的语义簇，并标记噪声点。
-
-### 4. 流式对话
-采用 SSE（Server-Sent Events）实现 LLM 响应的实时流式传输，提升用户体验。
-
-### 5. 降级策略
-- 嵌入模型加载失败时，自动降级到随机向量（保证系统可用性）
-- Ollama 服务不可用时，提供友好的错误提示
-- 缓存损坏时，自动删除并重新计算
-
-### 6. 请求追踪
-每个 API 请求分配唯一的 `X-Request-ID`，便于日志追踪和问题排查。
-
-## 📚 语料库说明
-
-本项目语料库包含 110+ 篇经典哲学文献，涵盖：
-
-**古代哲学**（27 篇）：
-- 柏拉图：《理想国》《斐多篇》《会饮篇》等
-- 亚里士多德：《形而上学》《尼各马可伦理学》《政治学》等
-- 斯多葛学派：塞涅卡、爱比克泰德、马可·奥勒留
-- 其他：赫拉克利特、卢克莱修、西塞罗等
-
-**中世纪哲学**（10 篇）：
-- 奥古斯丁：《忏悔录》《上帝之城》
-- 托马斯·阿奎那：《神学大全》
-- 安瑟伦、波爱修斯、迈蒙尼德等
-
-**近代哲学**（30 篇）：
-- 理性主义：笛卡尔、斯宾诺莎、莱布尼茨
-- 经验主义：洛克、休谟、贝克莱
-- 德国古典哲学：康德、黑格尔
-- 其他：尼采、叔本华、卢梭、密尔等
-
-**当代哲学**（43 篇）：
-- 现象学：胡塞尔、海德格尔、梅洛-庞蒂
-- 存在主义：萨特、加缪、波伏娃
-- 分析哲学：罗素、维特根斯坦、奎因
-- 后现代主义：福柯、德里达、德勒兹
-- 其他：SEP 和 IEP 百科条目
-
-## 🤝 贡献指南
-
-本项目为学术研究和竞赛展示项目，欢迎提出改进建议。
-
-## 📄 许可证
-
-MIT License
-
-## 🙏 致谢
-
-- 语料来源：Project Gutenberg、Stanford Encyclopedia of Philosophy、Internet Encyclopedia of Philosophy
-- 嵌入模型：sentence-transformers 项目
-- LLM 服务：Ollama 项目
-- UI 灵感：Bauhaus 设计运动
-
----
-
-**PhilTrace** - 让哲学概念的历史演变可见可感
+测试命令为 `python -m unittest discover -s tests -v`。早期实现保存在 [legacy 分支](https://github.com/cy-7/PhilTrace/tree/legacy)。

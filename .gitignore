@@ -13,15 +13,23 @@ env/
 
 # OS / IDE
 .DS_Store
+._*
 Thumbs.db
 .vscode/
 .idea/
+.cursor/
 
 # Project runtime artifacts
-.cursor/
 data/cache/
+data/demo_output/
+data/usages/
+data/interpretations/
 *.log
 
 # Local secrets
 .env
 .env.*
+
+# Model weights (downloaded at runtime)
+*.bin
+*.safetensors

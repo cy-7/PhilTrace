@@ -1,4 +1,4 @@
-﻿"""
+"""
 PhilTrace Backend - FastAPI entrypoint.
 """
 
@@ -20,6 +20,11 @@ from backend.config import settings
 from backend.data_models import AnalyzeRequest, AnalyzeResponse, ChatRequest, ChatResponse, ErrorResponse, HealthResponse
 from backend.llm_service import ChatMessage, OllamaService, OllamaServiceError, check_ollama_status, get_philosophy_system_prompt
 from backend.logging_utils import get_logger
+from backend.sense_interpreter import (
+    DeepSeekInterpreter,
+    SenseInterpretation,
+    create_interpreter,
+)
 
 logger = get_logger(__name__)
 VERSION = "1.1.0"
@@ -171,6 +176,132 @@ async def analyze_concept(request: Request, payload: AnalyzeRequest) -> AnalyzeR
         processing_time_ms=result["processing_time_ms"],
         model_info=result.get("model_info"),
     )
+
+
+# ============================================================================
+# Interpretation endpoint
+# ============================================================================
+
+@app.post("/interpret", tags=["Interpretation"])
+async def interpret_clusters(request: Request) -> Dict[str, Any]:
+    """
+    Run LLM sense interpretation on the clustered results of a concept.
+
+    Request body:
+        word: str - target concept
+        provider: str - "ollama" | "deepseek" (default from config)
+        api_key: str | null - required for deepseek
+        force_recompute: bool - ignore cache
+    """
+    request_id = request.state.request_id
+    body = await request.json()
+    word = body.get("word", "").strip()
+    provider = body.get("provider")  # None means use config default
+    api_key = body.get("api_key")
+    force_recompute = body.get("force_recompute", False)
+
+    if not word:
+        raise HTTPException(status_code=400, detail="word is required")
+
+    try:
+        # Get clustered data from engine
+        engine = get_engine()
+        df = engine.get_vectors(word)
+        if df.empty:
+            raise HTTPException(status_code=404, detail=f"No data found for '{word}'")
+
+        clustered_df = engine.cluster(df)
+        if "label" not in clustered_df.columns:
+            raise HTTPException(status_code=500, detail="Clustering failed")
+
+        # Create interpreter with specified provider
+        kwargs = {}
+        if api_key:
+            kwargs["api_key"] = api_key
+
+        interpreter = create_interpreter(provider=provider, **kwargs)
+
+        # If force_recompute, disable cache temporarily
+        if force_recompute:
+            interpreter.config.enable_cache = False
+
+        # Run interpretation
+        interpretations = interpreter.interpret_all_clusters(word, clustered_df)
+
+        return {
+            "word": word,
+            "provider": provider or interpreter.config.provider,
+            "model": interpreter.get_model_name(),
+            "n_clusters": len(interpretations),
+            "interpretations": [interp.to_dict() for interp in interpretations],
+            "request_id": request_id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("request_id=%s interpret failed: %s", request_id, exc)
+        raise HTTPException(status_code=500, detail=f"Interpretation failed: {exc}") from exc
+
+
+# ============================================================================
+# DeepSeek chat endpoint (streaming)
+# ============================================================================
+
+@app.post("/chat/deepseek", tags=["Chat"])
+async def chat_deepseek_stream(request: Request) -> StreamingResponse:
+    """
+    Stream chat response from DeepSeek API.
+
+    Request body:
+        message: str
+        api_key: str - DeepSeek API key
+        model: str | null - defaults to config deepseek_model
+        system_prompt: str | null
+        history: list[{role, content}] | null
+    """
+    request_id = request.state.request_id
+    body = await request.json()
+    message = body.get("message", "").strip()
+    api_key = body.get("api_key", "")
+    model = body.get("model")
+    system_prompt = body.get("system_prompt") or get_philosophy_system_prompt(enable=True)
+    history = body.get("history")
+
+    if not message:
+        return JSONResponse(status_code=400, content=error_payload("ValidationError", "message is required", request_id))
+
+    if not api_key:
+        import os
+        api_key = os.getenv("DEEPSEEK_API_KEY", "")
+    if not api_key:
+        return JSONResponse(status_code=400, content=error_payload("ConfigError", "DeepSeek API key not provided", request_id))
+
+    async def generate_deepseek_stream() -> AsyncIterator[str]:
+        try:
+            interpreter = DeepSeekInterpreter(api_key=api_key, model=model)
+
+            # Build full message with history
+            full_message = ""
+            if history:
+                for item in history:
+                    if item.get("role") == "user":
+                        full_message += f"User: {item['content']}\n"
+                    elif item.get("role") == "assistant":
+                        full_message += f"Assistant: {item['content']}\n"
+                full_message += f"User: {message}"
+            else:
+                full_message = message
+
+            for chunk in interpreter.chat_stream(full_message, system_prompt=system_prompt):
+                yield f"data: {json.dumps({'chunk': chunk, 'done': False})}\n\n"
+
+            yield f"data: {json.dumps({'chunk': '', 'done': True})}\n\n"
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("request_id=%s deepseek chat stream failed: %s", request_id, exc)
+            yield f"data: {json.dumps({'error': str(exc), 'done': True})}\n\n"
+
+    return StreamingResponse(generate_deepseek_stream(), media_type="text/event-stream")
 
 
 @app.get("/models", tags=["Resources"])
