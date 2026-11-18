@@ -53,7 +53,7 @@ def main() -> None:
                 "PhilTrace: a concept drift and philosophy chat platform. "
                 "Built for research, education, and competition demos."
             ),
-            "Report a bug": "https://github.com/philtrace/philtrace/issues",
+            "Report a bug": "https://github.com/cy-7/PhilTrace/issues",
         },
     )
 

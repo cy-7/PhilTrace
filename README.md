@@ -1,175 +1,91 @@
-﻿# PhilTrace
+<p align="center">
+  <img src="assets/logo.svg" width="64" alt="">
+</p>
 
-**哲学概念语义漂移追踪平台** — 基于上下文嵌入和 LLM 诠释的哲学术语历时语义分析工具。
+<h1 align="center">PhilTrace</h1>
 
-PhilTrace 从跨时期哲学语料中提取目标词的上下文用例，通过 ModernBERT 生成 token-level 嵌入，经 UMAP 降维和 HDBSCAN 聚类发现语义簇，最后由 LLM 为每个簇生成哲学诠释。
+<p align="center"><strong>在哲学文本中追踪词义随时代的变化</strong><br>
+Diachronic word-sense exploration for philosophy</p>
 
-## 核心能力
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/2d68548a-34dc-4b99-935c-87d6c2e7d9be">▶ 观看演示 · 1:55</a> &nbsp;·&nbsp;
+  <a href="#运行样例">分析样例</a> &nbsp;·&nbsp;
+  <a href="#快速开始">本地复现</a>
+</p>
 
-- **Token-level 上下文嵌入** — ModernBERT-large (1024-dim) 精确提取目标词在句中的语境化表示
-- **无监督语义聚类** — UMAP + HDBSCAN 自动发现词义分布
-- **LLM 哲学诠释** — 对每个语义簇生成描述、关键词、所属哲学传统
-- **历时对比** — 覆盖 Ancient / Medieval / Modern / Contemporary 四个时期
-- **交互式前端** — Streamlit 可视化散点图、演化趋势、代表语句
+<p align="center">
+  <a href="https://github.com/user-attachments/assets/2d68548a-34dc-4b99-935c-87d6c2e7d9be"><img src="assets/philtrace-demo.jpg" alt="PhilTrace 对 reason 的分析界面，左侧为语义空间散点图，右侧为语义簇占比变化" width="880"></a>
+</p>
 
-## 技术栈
+输入一个英文术语，例如 `reason`，PhilTrace 会从四个时期的哲学文本中提取包含该词的片段，把相近的用法聚成簇，并展示各簇的时期分布。代表语句附有来源，可回到对应的语料文件核对上下文。录屏还展示了选配的哲学对话功能。
 
-| 层级 | 技术 |
-|------|------|
-| Encoder | [answerdotai/ModernBERT-large](https://huggingface.co/answerdotai/ModernBERT-large) |
-| 降维 | UMAP |
-| 聚类 | HDBSCAN |
-| LLM | Ollama (qwen3 / gemma4 等本地模型) |
-| 后端 | FastAPI + Uvicorn |
-| 前端 | Streamlit + Plotly |
-| 语料 | 110 篇哲学经典文本 (古代→当代) |
+## 从原句到语义簇
 
-## 项目结构
+1. **提取用例。** 从 110 个语料文件中匹配目标词，保留文本片段、来源文件和时期。
+2. **编码目标词。** 用 ModernBERT-large 读取句内上下文，通过 tokenizer 的字符偏移定位目标词，再对其子词表示做平均池化。这样，同一个词在不同上下文中会得到不同的向量。
+3. **聚类与对照。** 用 UMAP 将向量投影到二维，再用 HDBSCAN 聚类。界面展示语义散点、各时期簇占比和代表语句。
+4. **解读语义簇。** 可用 Ollama 或 DeepSeek 根据代表样本生成簇描述和关键词，回到原句检验命名是否贴切。
 
-```
-PhilTrace/
-├── backend/
-│   ├── main.py                 # FastAPI 服务入口
-│   ├── analysis_engine.py      # 分析引擎 (提取/编码/聚类)
-│   ├── modernbert_encoder.py   # ModernBERT 编码器模块
-│   ├── sense_interpreter.py    # LLM 语义诠释模块
-│   ├── pipeline_config.py      # 管线配置加载器
-│   ├── llm_service.py          # Ollama 对话服务
-│   ├── config.py               # 环境配置
-│   └── data_models.py          # API 数据模型
-├── config/
-│   └── pipeline.yaml           # 管线参数配置
-├── corpus/                     # 哲学语料库 (4 个时期)
-│   ├── ancient/                # 柏拉图、亚里士多德、斯多葛等
-│   ├── medieval/               # 奥古斯丁、阿奎那等
-│   ├── modern/                 # 笛卡尔、康德、黑格尔等
-│   └── contemporary/           # SEP/IEP 条目
-├── prompts/
-│   └── sense_interpretation.md # LLM 诠释 prompt 模板
-├── scripts/
-│   └── run_demo.py             # 端到端 demo 脚本
-├── tests/
-│   ├── test_analysis_engine.py
-│   └── test_sense_interpreter.py
-├── ui/
-│   ├── view_drift.py           # 概念漂移研究页面
-│   └── view_chat.py            # 哲学对话页面
-├── utils/
-│   ├── api_client.py           # 后端 API 客户端
-│   └── api_mock.py             # Mock 数据 (开发用)
-├── main.py                     # Streamlit 入口
-├── requirements.txt            # 前端依赖
-└── requirements_backend.txt    # 后端依赖
-```
+## 运行样例
+
+用 ModernBERT-large 和 Ollama 的 `qwen3:8b` 分析 `justice`，一次实际运行得到 **2,819 条用例、19 个簇、97 个噪声点**。
+
+| 古代 | 中世纪 | 近代 | 当代 |
+| ---: | ---: | ---: | ---: |
+| 1,333 | 320 | 860 | 306 |
+
+模型把第 5 簇的 38 条用例解读为「作为道德义务或社会规则的正义」。其中一条来自[亚里士多德《政治学》](corpus/ancient/Aristotle_Politics.txt)：
+
+> Justice, for instance, is a virtue, and so necessary
+
+原句把正义称为一种德性。对照其余用例，可以进一步检查用「社会规则」概括这一簇是否合适。语料混合了经典著作的英文译本和百科条目，切分也保留了部分标题与重复文本。例如，第 0 簇的代表样本重复出现了休谟的同一条章节标题。结果适合用来寻找值得细读的材料。
 
 ## 快速开始
 
-### 环境要求
-
-- Python 3.10+
-- [Ollama](https://ollama.ai/) (本地 LLM 推理)
-- 约 2GB 磁盘空间 (ModernBERT-large 权重)
-
-### 安装
+准备 Python 3.11 或 3.12。首次分析会从 Hugging Face 下载 ModernBERT 权重，CPU 可以运行。
 
 ```bash
-# 克隆项目
-git clone https://github.com/your-username/PhilTrace.git
+git clone https://github.com/cy-7/PhilTrace.git
 cd PhilTrace
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt -r requirements_backend.txt
+```
 
-# 安装依赖
-pip install -r requirements.txt
-pip install -r requirements_backend.txt
+在两个终端的项目根目录中激活同一个虚拟环境，分别启动后端和前端。
 
-# 拉取 LLM 模型
+```bash
+python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+```bash
+python -m streamlit run main.py
+```
+
+打开 [Streamlit 界面](http://localhost:8501)，在「概念漂移研究」中输入 `justice` 或 `reason`。[API 文档](http://127.0.0.1:8000/docs)提供 `POST /analyze` 和 `POST /interpret`。基础分析无需 LLM。复现时可在页面末尾的「开发者信息」查看编码模型，后端离线时前端会回退到模拟数据，编码器加载失败时会使用哈希向量兜底。
+
+<details>
+<summary>运行 LLM 解读和生成报告</summary>
+
+启动 Ollama 后，下载配置中的默认模型并运行脚本。
+
+```bash
 ollama pull qwen3:8b
-```
-
-### 运行 Demo
-
-```bash
-# 端到端 pipeline demo (编码 + 聚类 + LLM 诠释)
 python -m scripts.run_demo --word justice --provider ollama
-
-# 可选目标词: force, reason, cause, virtue, substance, justice
 ```
 
-输出：
-- 终端打印 pipeline 各阶段进度和统计
-- `data/demo_output/demo_<word>.md` — Markdown 报告
-- `data/interpretations/<word>_interpretations.json` — 结构化诠释结果
+Markdown 报告写入 `data/demo_output/demo_justice.md`，结构化解读写入 `data/interpretations/justice_interpretations.json`。也可以在网页选择 DeepSeek，填写 API Key，或在启动后端前设置 `DEEPSEEK_API_KEY`。使用 DeepSeek 时，代表语句会传给所选服务生成解读。
 
-### 启动 Web 服务
+</details>
 
-```bash
-# 所有命令均在项目根目录运行 (C:\project\PhilTrace)
+## 代码入口
 
-# 后端 API
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
+| 文件 | 用途 |
+| --- | --- |
+| [backend/analysis_engine.py](backend/analysis_engine.py) | 语料提取、向量缓存、聚类与时期统计 |
+| [backend/modernbert_encoder.py](backend/modernbert_encoder.py) | 目标词定位与上下文编码 |
+| [backend/sense_interpreter.py](backend/sense_interpreter.py) | 代表样本采集与 LLM 解读 |
+| [config/pipeline.yaml](config/pipeline.yaml) | 模型与算法参数 |
+| [corpus/](corpus/) | 古代 27、中世纪 10、近代 30、当代 43 个语料文件 |
 
-# 前端 (新终端)
-streamlit run main.py
-```
-
-## Pipeline 流程
-
-```
-语料库 (110 files)
-    │
-    ▼ 提取含目标词的句子
-句子列表 + 时期标签
-    │
-    ▼ ModernBERT token-level encoding
-1024-dim 向量矩阵
-    │
-    ▼ UMAP 降维 → 2D
-    ▼ HDBSCAN 聚类
-语义簇 (每簇 = 一个词义)
-    │
-    ▼ LLM 诠释 (Ollama)
-结构化输出: 描述 / 关键词 / 哲学传统
-    │
-    ▼ 可视化 + 报告
-```
-
-## 配置
-
-所有 pipeline 参数集中在 `config/pipeline.yaml`：
-
-```yaml
-encoder:
-  model_name: "answerdotai/ModernBERT-large"
-  subword_pooling: "mean"
-  max_length: 8192
-
-hdbscan:
-  min_cluster_size: 15
-  min_samples: 5
-
-interpretation:
-  provider: "ollama"
-  ollama_model: "qwen3:8b"
-  n_samples: 8
-  sampling_strategy: "centroid_nearest"
-```
-
-## 测试
-
-```bash
-python -m unittest discover tests -v
-```
-
-## 语料库
-
-覆盖西方哲学四个主要时期，共 110 篇文本：
-
-| 时期 | 代表作者 | 文本数 |
-|------|----------|--------|
-| Ancient | Plato, Aristotle, Epictetus, Seneca | 27 |
-| Medieval | Augustine, Aquinas, Anselm, Boethius | 10 |
-| Modern | Descartes, Kant, Hegel, Nietzsche, Mill | 30 |
-| Contemporary | SEP/IEP 哲学百科条目 | 43 |
-
-## License
-
-MIT
+测试命令为 `python -m unittest discover -s tests -v`。早期实现保存在 [legacy 分支](https://github.com/cy-7/PhilTrace/tree/legacy)。
